@@ -2,12 +2,29 @@
 
 #+OPTIONS: num:nil toc:nil
 
-* Evaluate skill ranking system
-** TODO build a classifier: given two players' stats, predict which one has a higher SR
+* Uncovering what distinguishes the high level players from others and whether or not SR reflects players' skill levels accurately.
 ** TODO compare some game stats between players in different levels: /Melee/ could be an interesting stat
+ *Compare game stats between players in different levels.* For example, /melee final blows/ is believed to happen
+  much more often at higher levels. A scatter plot of /melee final blows/ percentage versus SR can reveal more on this assumption.
 ** TODO compare the performance of (win rate, elims) different heroes across all levels
+ *Compare the performance (win rate, eliminations, elim/death rate) of different heroes across all levels.* One idea is to
+  rank the heroes by their (weighted) average win rate. 
 ** TODO see how well support mains play dps
-** TODO see how well dps mains play support
+ *Evaluate how well support mains play dps heroes.* A player's main is decided by what type of heroes he/she plays the most.
+  We can compare a support main's dps performance to a dps's performance having the same SR.
+** TODO do a PCA and visualize, grouped by main hero type
+ *Perform PCA on overall stats.* Then take the first two principal components and visualize on a scatter plot, points grouped
+  by main hero type.
 ** TODO hero usage overall, low sr, high sr
+ *Investigate heroes usage.* Rank heroes by their play time. This can be done for all players, high level players and low
+  level players. Can also compare the ratio of the play time of each hero type. 
 ** TODO does meta exists? i.e., do meta heroes win more often than others at high sr
-** TODO 
+ *Investigate the existence of "meta".* Meta is a term used among players to represent a certain team composition that has
+  a higher chance to win. We will compare the win rate of meta heroes and that of other heroes to see if meta actually works.
+** TODO build a predictive model: given a player's stats, predict the SR
+ *Build a model to predict a player's SR give his/her game stats.* Potential model choices include Random Forests, LASSO,
+  Boosting, etc. This may be difficult as how SR is computed has always been a mystery and is often criticized for not representing
+  skill level well enough. 
+** TODO build a classifier: given two players' stats, predict which one has a higher SR
+ *Build a classification model to identify the player with the higher SR given two players' stats.* We can compute the log ratio
+  of the two players for each stat and use these as predictors.
