@@ -1,0 +1,16 @@
+#+TITLE: SI618 Project II Proposal
+
+#+OPTIONS: num:nil toc:nil
+
+* Data
+
+
+* Evaluate skill ranking system
+** build a classifier: given two players' stats, predict which one has a higher SR
+** compare some game stats between players in different levels: /Melee/ could be an interesting stat
+** compare the performance of (win rate, elims) different heroes across all levels
+** see how well support mains play dps
+** see how well dps mains play support
+** hero usage overall, low sr, high sr
+** does meta exists? i.e., do meta heroes win more often than others at high sr
+** 
