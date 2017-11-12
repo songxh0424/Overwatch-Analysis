@@ -2,14 +2,11 @@ source('./scraper.R')
 library(foreach)
 library(doParallel)
 
-dfPlayer = getTags()
-save(dfPlayer, file = 'dfPlayer.RData')
-## mclapply not working
-## dfDetail = mclapply(dfPlayer$btag, getTable, mc.cores = cores)
-## dfDetail = lapply(dfPlayer$btag, getTable)
+## dfPlayer = getTags()
+## save(dfPlayer, file = 'dfPlayer.RData')
 
 ## try out foreach in luigi
-## load('./dfPlayer.RData')
+load('./dfPlayer.RData')
 cores = 26
 registerDoParallel(cores = cores)
 dfDetail = foreach(b = dfPlayer$btag) %dopar%
