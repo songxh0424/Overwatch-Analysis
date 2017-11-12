@@ -12,8 +12,8 @@ genurl = function(page) {
   return(url)
 }
 
-getTags = function(pages = 1:1650, random = TRUE, n.per.page = 10, cores = 2) {
-  tags = mclapply(pages, function(p) {
+getTags = function(pages = 1:1650, random = TRUE, n.per.page = 10, thres = 50) {
+  tags = lapply(pages, function(p) {
     url = genurl(p)
     nodes = p %>% genurl() %>% read_html()
     rows = nodes %>% html_nodes('tbody') %>% html_nodes('tr')
@@ -23,25 +23,29 @@ getTags = function(pages = 1:1650, random = TRUE, n.per.page = 10, cores = 2) {
     } else {
       warning(sprintf('Page %s has wrong number of rows', p))
     }
+    ## keep only rows that have at least 50 games
+    games = rows %>% html_nodes('.align-right') %>% html_text() %>% str_trim() %>% as.numeric()
+    idx = which(games >= thres)
     if(random) {
-      idx = sample(1:min(100, length(rows)), n.per.page)
+      idx = sample(idx, min(n.per.page, length(idx)))
       rows = rows[idx]
     }
     ## get the battle tags
     tag = rows %>% html_nodes('a') %>% html_text()
     tag = tag[tag != '']
     tag = str_replace_all(tag, "#", "-")
-    ## get the ranking and SR and SR
+    ## get the ranking and SR and games
     ranking = rows %>% html_node('td') %>% html_text() %>% as.numeric()
     sr = rows %>% html_nodes('span') %>% html_text() %>% as.numeric()
-    return(data.table(btag = tag, ranking = ranking, sr = sr))
-  }, mc.cores = cores) %>% bind_rows() 
+    games = games[idx]
+    return(data.frame(btag = tag, ranking = ranking, sr = sr, games = games))
+  }) %>% bind_rows()
   return(tags)
 }
 ## get tables based on battle tag
 getTable = function(btag) {
-  url = "https://playoverwatch.com/en-gb/career/pc/us/" %>% paste0(btag)
-  webHTML = tryCatch({read_html(url)}, error=function(err) "Error")
+  url_profile = "https://playoverwatch.com/en-gb/career/pc/us/" %>% paste0(btag)
+  webHTML = tryCatch({read_html(url_profile)}, error=function(err) "Error")
   # Get playmode
   innerNodes = webHTML %>% html_nodes("#competitive")
   
@@ -68,5 +72,6 @@ getTable = function(btag) {
     # store in proper one
     tables = c(tables, allTables)
   }
+  names(tables) = str_replace_all(names(tables), paste0(btag, '-'), '')
   return(tables)
 }

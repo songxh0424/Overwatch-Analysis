@@ -25,3 +25,4 @@ output contains information on 16500 players, each having around 200 or so small
  - *Investigate the existence of "meta".* Meta is a term used among players to represent a certain team composition that has a higher chance to win. We will compare the win rate of meta heroes and that of other heroes to see if meta actually works.
  - *Build a model to predict a player's SR give his/her game stats.* Potential model choices include Random Forests, LASSO, Boosting, etc. This may be difficult as how SR is computed has always been a mystery and is often criticized for not representing skill level well enough. 
  - *Build a classification model to identify the player with the higher SR given two players' stats.* We can compute the log ratio of the two players for each stat and use these as predictors.
+
