@@ -47,7 +47,7 @@ getTags = function(pages = 1:1650, random = TRUE, n.per.page = 10, cores = 24) {
 }
 
 getTable = function(btag) {
-  url_profile = "https://playoverwatch.com/en-gb/career/pc/us/" %>% paste0(btag)
+  url_profile = "https://playoverwatch.com/en-us/career/pc/" %>% paste0(btag)
   webHTML = read_html(url_profile)
   # get sr
   SR = webHTML %>% html_node('.u-align-center') %>% html_text() %>% as.numeric()
