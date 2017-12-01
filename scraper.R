@@ -52,7 +52,7 @@ getTable = function(btag) {
   # get sr
   SR = webHTML %>% html_node('.u-align-center') %>% html_text() %>% as.numeric()
   ## get main
-  main = webHTML %>% html_node('style') %>% html_text() %>% str_extract_all('hero/\\w+/career')
+  main = webHTML %>% html_node('style') %>% html_text() %>% str_extract_all('hero/[\\w-]+/career')
   main = main[[1]][2] %>% str_replace('hero/', '') %>% str_replace('/career', '')
   # Get playmode
   innerNodes = webHTML %>% html_nodes("#competitive")

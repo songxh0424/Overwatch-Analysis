@@ -29,7 +29,8 @@
  *Build a classification model to identify the player with the higher SR given two players' stats.* We can compute the log ratio
   of the two players for each stat and use these as predictors.
   
-
+* SR Tier
+|-------------+-----------+------|
 | Bronze      |    1-1499 |  100 |
 | Silver      | 1500-1999 |  200 |
 | Gold        | 2000-2499 |  400 |
@@ -37,3 +38,9 @@
 | Diamond     | 3000-3499 | 1200 |
 | Master      | 3500-3999 | 2000 |
 | Grandmaster |     4000+ | 3000 |
+|-------------+-----------+------|
+
+* Finalizing ideas
+** TODO compare game stats between players in different levels
+** TODO compare hero usage across different levels
+** TODO does meta heroes performe better than others
