@@ -56,12 +56,12 @@ dfDetail = dfDetail[-which(lapply(dfDetail, is.null) %>% unlist())]
 ## reformat tables
 dfDetail = lapply(dfDetail, function(x) {
   x$table = lapply(x$table, function(df) {
-    ## tmp = df[2]
-    ## row.names(tmp) = df[, 1]
-    ## return(tmp)
-    names(df) = c('key', 'value')
-    df = df %>% spread(key = key, value = value)
-    return(df)
+    tmp = df[2]
+    row.names(tmp) = df[, 1]
+    return(tmp)
+    ## names(df) = c('key', 'value')
+    ## df = df %>% spread(key = key, value = value)
+    ## return(df)
   })
   return(x)
 })

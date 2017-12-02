@@ -72,15 +72,42 @@ getTable = function(btag) {
                                         # Get table information
     dataTables = innerNodes %>% html_nodes(tabSel) %>% html_nodes("table.data-table")
     allTables = dataTables %>% html_table
-    ## Now, up to you how you want to store the data... Will just store as vector of data frames
+
+    names(allTables) = as.character(unlist(lapply(allTables, function(x) {names(x)[1]})))
     whichHero = heroName[grep(tabID, idAttr)]
-                                        # just going to set the names of each data frame in the list
-    names(allTables) = rep(paste0(btag, "-", whichHero, "-",as.character(unlist(lapply(allTables, function(x) { names(x)[1]})))), 1, length(allTables))
-                                        # store in proper one
+    # convert tables to wide format
+    allTables = lapply(allTables, function(df) {
+      names(df) = c('key', 'value')
+      df = df %>% spread(key = key, value = value) %>%
+        mutate(Player = btag, hero = whichHero)
+      return(df)
+    })
     ## tables = c(tables, allTables)
     return(allTables)
   })
-  tables = unlist(tables, recursive = FALSE)
-  names(tables) = str_replace_all(names(tables), paste0(btag, '-'), '')
-  return(list(SR = SR, main = main, tables = tables))
+  tableNames = c('Hero Specific', 'Combat', 'Assists', 'Best', 'Average', 'Match Awards', 'Game', 'Miscellaneous')
+
+  mergedTables = lapply(tableNames, function(nm) {
+    largeTb = lapply(tables, function(tb) {
+      if(is.null(tb[[nm]])) return(NULL)
+      tmp = tb[[nm]] %>% mutate_all(as.character)
+      names(tmp) = names(tmp) %>%
+        str_replace_all('Final Blow\\b', 'Final Blows') %>%
+        str_replace_all('Solo Kill\\b', 'Solo Kills') %>%
+        str_replace_all('Environmental Kill\\b', 'Environmental Kills') %>%
+        str_replace_all('Multikill\\b', 'Multikills') %>%
+        str_replace_all('Death\\b', 'Deaths') %>%
+        str_replace_all('Elimination\\b', 'Eliminations') %>%
+        str_replace_all('Critical Hit\\b', 'Critical Hits') %>%
+        str_replace_all('Generator\\b', 'Generators') %>%
+        str_replace_all('Turret\\b', 'Turrets') %>%
+        str_replace_all('Objective Kill\\b', 'Objective Kills') %>%
+        str_replace_all('Assist\\b', 'Assists')
+      return(tmp)
+    })
+    return(bind_rows(largeTb))
+  })
+  names(mergedTables) = tableNames
+
+  return(list(SR = SR, main = main, tables = mergedTables))
 }
