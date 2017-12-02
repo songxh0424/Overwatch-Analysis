@@ -41,6 +41,7 @@
 |-------------+-----------+------|
 
 * Finalizing ideas
+** TODO exploratory analysis on the distribution of SR and hero/class usage
 ** TODO compare game stats between players in different levels
 ** TODO compare hero usage across different levels
 ** TODO does meta heroes performe better than others
