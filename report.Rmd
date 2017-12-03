@@ -1,0 +1,45 @@
+---
+title: "Deep Dive into Overwatch Players Career Data"
+output: 
+  pdf_document:
+    number_sections: true
+header-includes:
+   - \usepackage{indentfirst}
+   - \usepackage{subfig}
+   - \usepackage{graphicx}
+   - \usepackage{float}
+   - \usepackage{amsmath}
+fontsize: 10pt
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, fig.align = "center", message = FALSE, warning = FALSE, comment = "" fig.pos = "H", cache = FALSE)
+library(knitr)
+library(ggplot2)
+library(gridExtra)
+library(GGally)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(ggthemes)
+library(grid)
+library(scales)
+source('./functions.R')
+```
+
+# Motivation
+
+Since its official release back in May 2016, Overwatch has quickly became one of the most popular online multiplayer 
+first person shooter video game, garnering over 35 million players in total over the past year. For a online game with such
+popularity, a massive amount of data are generated everyday. These data are proved to be invaluable in evaluating the 
+balanceness of playable characters and the fairness of matchmaking. 
+
+To give a bit more information on the game, at the moment, there are 26 playable characters (aka. heroes)
+in the Overwatch roster. Each competitive game separates players into two teams of six. Players on the same team must pick six
+different heroes. After the first 10 "Placement matches", a player is given a skill rating (SR) calculated based on his/her
+performance in those matches as well as the match outcomes. After that, every competitive game the player participates will
+result in an addition or subtraction to the player's current SR. 
+
+## Data Sources
+
