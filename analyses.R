@@ -9,63 +9,14 @@ library(doParallel)
 library(lubridate)
 source('./functions.R')
 
-theme_Publication <- function(base_size=12, legend.pos = "bottom") {
-      (theme_foundation(base_size=base_size)
-       + theme(plot.title = element_text(face = "bold",
-                                         size = rel(1.2), hjust = 0.5),
-               text = element_text(),
-               panel.background = element_rect(colour = NA),
-               plot.background = element_rect(colour = NA),
-               panel.border = element_rect(colour = NA),
-               axis.title = element_text(face = "bold",size = rel(1)),
-               axis.title.y = element_text(angle=90,vjust =2),
-               axis.title.x = element_text(vjust = -0.2),
-               axis.text = element_text(), 
-               axis.line = element_line(colour="black"),
-               axis.ticks = element_line(),
-               panel.grid.major = element_line(colour="#f0f0f0"),
-               panel.grid.minor = element_blank(),
-               legend.key = element_rect(colour = NA),
-               legend.position = legend.pos,
-               legend.direction = "horizontal",
-               legend.key.size= unit(0.2, "cm"),
-               legend.margin = unit(0, "cm"),
-               legend.title = element_text(face="italic"),
-               plot.margin=unit(c(10,5,5,5),"mm"),
-               strip.background=element_rect(colour="#f0f0f0",fill="#f0f0f0"),
-               strip.text = element_text(face="bold")
-          ))
-}
-
-scale_fill_Publication <- function(...){
-      library(scales)
-      discrete_scale("fill","Publication",manual_pal(values = c("#386cb0","#fdb462","#7fc97f","#ef3b2c","#662506","#a6cee3","#fb9a99","#984ea3","#ffff33", "#FFA500", "#3cb371", "#1E90FF")), ...)
-}
-
-scale_colour_Publication <- function(...){
-      library(scales)
-      discrete_scale("colour","Publication",manual_pal(values = c("#386cb0","#fdb462","#7fc97f","#ef3b2c","#662506","#a6cee3","#fb9a99","#984ea3","#ffff33", "#FFA500", "#3cb371", "#1E90FF")), ...)
-}
-
 ################################################################################
 # data cleaning
 ################################################################################
 load('dfDetail.RData')
+load('dfMerged.RData')
 ## remove empty data
 dfDetail = dfDetail[-which(lapply(dfDetail, is.null) %>% unlist())]
-## reformat tables
-dfDetail = lapply(dfDetail, function(x) {
-  x$table = lapply(x$table, function(df) {
-    tmp = df[2]
-    row.names(tmp) = df[, 1]
-    return(tmp)
-    ## names(df) = c('key', 'value')
-    ## df = df %>% spread(key = key, value = value)
-    ## return(df)
-  })
-  return(x)
-})
-dfTables = lapply(dfDetail, function(x) x$table)
+dfTables = lapply(dfDetail, function(x) x$tables)
 
 SRvec = lapply(dfDetail, function(x) x$SR) %>% unlist()
 mains = lapply(dfDetail, function(x) x$main) %>% unlist()
@@ -74,7 +25,8 @@ tags = names(dfDetail)
 dfPlayer = data.frame(btags = tags, SR = SRvec, Main = str_to_upper(mains)) %>%
   filter(!is.na(SR))
 tiers = lapply(SRvec, assignTier) %>% unlist()
-dfPlayer$Tier = tiers
+dfPlayer$Tier = factor(tiers, levels = c('Bronze', 'Silver', 'Gold', 'Platinum',
+                                         'Diamond', 'Master', 'Grandmaster'))
 
 ## need a heroes (stats) table
 heroes = c('doomfist', 'genji', 'mccree', 'pharah', 'reaper', 'soldier-76', 'sombra', 'tracer',
@@ -85,13 +37,53 @@ classes = rep(c('offense', 'defense', 'tank', 'support'), c(8, 6, 6, 6))
 dfHero = data.frame(hero = str_to_upper(heroes), class = str_to_title(classes))
 dfPlayer = dfPlayer %>% left_join(dfHero, by = c('Main' = 'hero')) %>% na.omit()
 
+## filter out players that don't have SR
+dfMerged = lapply(dfMerged, function(df) {
+  filter(df, Player %in% dfPlayer$btags) %>%
+    mutate(hero = str_to_upper(hero))
+})
 
+## reformat objective time and time spent on fire
+dfMerged$Combat = dfMerged$Combat %>% rename(`Fire Time` = `Time Spent on Fire`) %>%
+  tbl_df()
+idx = which(str_count(dfMerged$Combat$`Fire Time`, ':') == 1)
+dfMerged$Combat$`Fire Time`[idx] = paste0('00:', dfMerged$Combat$`Fire Time`[idx])
+idx = which(str_count(dfMerged$Combat$`Objective Time`, ':') == 1)
+dfMerged$Combat$`Objective Time`[idx] = paste0('00:', dfMerged$Combat$`Objective Time`[idx])
+################################################################################
+## analyses
+################################################################################
 
-
-
-
-
-
+## win percentage vs. SR
+ggdat = dfMerged$Game %>% filter(hero == 'ALL HEROES', as.numeric(`Games Played`) > 50) %>%
+  mutate(`Win Percentage` = round(as.numeric(`Games Won`) / as.numeric(`Games Played`) * 100, digits = 2)) %>%
+  left_join(dfPlayer, by = c('Player' = 'btags'))
+p = ggplot(ggdat, aes(SR, `Win Percentage`, color = Tier)) +
+  ## geom_text(aes(label = Player))
+  geom_point(alpha = 0.7)
+## percentage of time spent on fire vs. SR
+ggdat = dfMerged$Game %>% filter(hero == 'ALL HEROES', as.numeric(`Games Played`) > 50) %>%
+  left_join(dfPlayer, by = c('Player' = 'btags')) %>% 
+  filter(SR > 500) %>%
+  ## inner_join(dfMerged$Combat %>% select(Player, hero, `Fire Time`, `Objective Time`),
+  inner_join(dfMerged$Combat, 
+             by = c('Player', 'hero')) %>%
+  mutate(`Fire Time` = hms(`Fire Time`), `Objective Time` = hms(`Objective Time`)) %>%
+  mutate(`Time Played` = hours(`Time Played` %>% str_replace('hours', '') %>% as.numeric()))
+p = ggplot(ggdat, aes(Tier, `Fire Time` / `Time Played` * 100, color = Tier)) +
+  geom_boxplot(width = 0.7) + ylab('Percentage of Time Spent on Fire')
+plot_custom(p)
+p = ggplot(ggdat, aes(SR, `Fire Time` / `Time Played` * 100, color = Tier)) +
+  geom_point(alpha = 0.5) + geom_smooth(color = 'black') + ylab('Percentage of Time Spent on Fire')
+plot_custom(p, base_size = 10)
+## percentage of time spent on objective vs. SR 
+p = ggplot(ggdat, aes(Tier, `Objective Time` / `Time Played` * 100, color = Tier)) +
+  geom_boxplot(width = 0.7) + ylab('Percentage of Objective Time')
+plot_custom(p)
+## kill/death ratio vs. SR
+p = ggplot(ggdat, aes(SR, num(Eliminations) / num(Deaths), color = Tier)) +
+  geom_point(alpha = 0.5) + geom_smooth(color = 'black')
+plot_custom(p, legend.pos = 'right')
 
 
 
@@ -101,10 +93,3 @@ dfPlayer = dfPlayer %>% left_join(dfHero, by = c('Main' = 'hero')) %>% na.omit()
 ggplot(dfPlayer, aes(SR)) + geom_histogram()
 
 ## scatter of most elims in game vs. SR
-ggdat = lapply(1:length(dfTables), function(i) {
-  elims = dfTables[[i]][['ALL HEROES-Best']]['Solo Kills - Most in Game',]
-  if(is.null(elims)) return(NULL)
-  df.tmp = dfPlayer[i, ] %>% mutate(Elims = as.numeric(elims)) 
-  return(df.tmp)
-}) %>% bind_rows()
-ggplot(ggdat, aes(SR, Elims, color = class)) + geom_point(alpha = 0.5)

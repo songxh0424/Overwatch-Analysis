@@ -102,7 +102,8 @@ getTable = function(btag) {
         str_replace_all('Generator\\b', 'Generators') %>%
         str_replace_all('Turret\\b', 'Turrets') %>%
         str_replace_all('Objective Kill\\b', 'Objective Kills') %>%
-        str_replace_all('Assist\\b', 'Assists')
+        str_replace_all('Assist\\b', 'Assists') %>%
+        str_replace_all('^Game\\b', 'Games')
       return(tmp)
     })
     return(bind_rows(largeTb))

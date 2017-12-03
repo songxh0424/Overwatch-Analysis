@@ -45,3 +45,4 @@
 ** TODO compare game stats between players in different levels
 ** TODO compare hero usage across different levels
 ** TODO does meta heroes performe better than others
+** TODO is it possible to predict SR based on overall/average statistics
