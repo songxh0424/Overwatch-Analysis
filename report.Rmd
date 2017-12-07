@@ -1,5 +1,6 @@
 ---
 title: "Deep Dive into Overwatch Players Career Data"
+author: 'Xinghui Song'
 output: 
   pdf_document:
     number_sections: true
@@ -14,7 +15,7 @@ urlcolor: blue
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, fig.align = "center", message = FALSE, warning = FALSE, comment = "" fig.pos = "H", cache = FALSE)
+knitr::opts_chunk$set(echo = FALSE, fig.align = "center", message = FALSE, warning = FALSE, comment = "", fig.pos = "H", cache = FALSE)
 library(knitr)
 library(ggplot2)
 library(gridExtra)
@@ -39,7 +40,84 @@ To give a bit more information on the game, at the moment, there are 26 playable
 in the Overwatch roster. Each competitive game separates players into two teams of six. Players on the same team must pick six
 different heroes. After the first 10 "Placement matches", a player is given a skill rating (SR) calculated based on his/her
 performance in those matches as well as the match outcomes. After that, every competitive game the player participates will
-result in an addition or subtraction to the player's current SR. 
+result in an addition or subtraction to the player's current SR. Due to the nature of this SR system, it is very important
+for the game developers to constantly tweak the gameplay design of heroes to ensure that no hero becomes too overpowered or 
+underpowered.
 
-## Data Sources
+The main goal of this project is to analyze the hero usage and game statistics, and how their distributions vary across different
+levels (SR, SR tier) of players. More specifically, we will be looking at the data from the following four aspects:
 
++ exploratory analysis on the distribution of SR and hero/class usage
++ compare game stats between players in different levels
++ compare hero usage across different levels
++ does meta heroes performe better than others
++ is it possible to predict SR based on overall/average statistics
+
+
+# Data Sources
+
+Players' statistics can be found on various website including the [official Overwatch website](https://playoverwatch.com) 
+and [overwatchtracker.com](https://overwatchtracker.com).
+Datasets used in this project are scraped from these two websites using R package `rvest`. We first scrape players'
+battle tags (player id) overwatchtracker [leaderboard](https://overwatchtracker.com/leaderboards/pc/global). Then we use
+the battle tags to access each individual player's career statistics page and scrape all relevant tables. The final
+output contains information on 16500 players, each having around 200 or so small tables for different heroes and different
+group of stats. Take player Wraxu#1747 for example, his career profile can be found at 
+https://playoverwatch.com/en-gb/career/pc/us/Wraxu-1747. By simply replacing the battle tag string at the end, we can
+scrape every player's data as long as the player participates in the current competitive season. 
+
+On each player"s profile page, there are usually up to eight tables under categories "Hero Specific", "Combat", "Assists", 
+"Best", "Average", "Match Awards", "Game" and "Miscellaneous" for each hero he/she played. We first bind tables in the same category
+but of different heroes into one large table, and then bind tables across all players. So in the end, we have eight large tables
+corresponding to the eight categories mentioned above. Each row of those tables has two additional variables to identify which 
+player and which hero this row belongs to. The tables are then stored in a list and saved as an RData file. 
+
+Since we are only concerned with competitive games, we restrict the data to the current competitive season, which starts in early
+November and ends mid-December. There are over 200 variables with eight tables combined. Some of the variables that we are most
+interested in include `SR`, `Games Played`, `Games Won`, `Eliminations`, `Deaths`, `Time Spent on Fire`, `Objective Time`, etc.
+All variables are saved as characters during the scraping process, most of which will be converted to numeric or time period type
+when analyses are carried out.
+
+# Data Gathering and Processing
+
+## Scraping data from the web
+
+Here we will explain the data gathering process in further details. The first step is to get a decent amount of players' battle
+tags to pull data from. The overwatchtracker's leaderboard has an extensive list of players that occupy over 1650 webpages with
+exactly 100 players on each page. Additionally, the url of these pages are nicely formatted as
+https://overwatchtracker.com/leaderboards/pc/global/CompetitiveRank?page=1&mode=1. This allows us to effortlessly access each
+page by simply changing the page number. During this step, we randomly sample 10 players on each page from page 1 to page 1650,
+which covers the SR range of 900 to 4800. This gives us the battle tags of 16500 players across different skill levels. 
+
+After getting the battle tags, we plug each one of them into the overwatch career profile url mentioned in last section. At the
+top of a player's profile page, there is his current SR and an image of the hero he used the most. Both of those are important
+to our analyses so they are stored in a list object corresponding to the player. The main portion of the profile page are a
+collection of tables, usually 7 or 8 tables. The default layout of those tables displays aggregated statistics of all heroes.
+Statistics of specific heroes can be accessed through a dropdown menu. For each player, we use `rvest` package to scrape all 
+tables from both the "all heroes" layout as well as every individual hero layout, and then bind the same table from different
+heroes into a single large table with an added column of hero names. So one player's profile page yields up to 8 tables. 
+
+Out of the 16500 players, around 1200 or so have their information misrepresented on overwatchtracker, causing "pages unfound"
+error when using their battle tags to make url requests. Fortunately this still leaves us enough data to work with. Now each
+player has their statistics stored in eight tables, namely tables "Hero Specific", "Combat", "Assists", "Best", "Average", 
+"Match Awards", "Game" and "Miscellaneous". We proceed by binding these tables across all players with a new column indicating
+the player's battle tag corresponding to each row. The final products are eight tables under the same names, each having
+roughly 190000 rows. Further data cleaning and analyses will be carried out using these tables, stored in a list object
+called `dfMerged`. The SR and main hero information scraped earlier are stored in a data frame called `dfPlayer`.
+
+## Data Cleaning
+
+In order to avoid type errors when binding tables, all data fields are read as characters at data gathering step. However,
+the majority of the data is meant to be of type numeric or time. We employ packages `stringr` and `lubridate` to convert
+those data to desired format. 
+
+Many large integers on the profile pages have commas, which renders the function `as.numeric` powerless in this case. We first
+use `str_replace_all` to replace all commas with empty string, and then convert them to numeric values. As for the duration
+variables like `Time Spent on Fire` and `Objective Time`, we first make sure that the string has format "hh:mm:ss". If not, 
+it can only be of "mm:ss" format and we can fix that by prepend it with "00:". After that, the variable can be converted to
+a `Period` object by using function `hms` in package `lubridate`. 
+
+Another thing that needs to be cleaned up is typos. The reason this could be an issue is that the typos usually occur in variable
+names. For example, variable `Deaths` is misspelled as `Death` in many tables, which causes the same data being split into
+two columns and a lot of missing values as a result. Again, we use the `str_replace_all` function with regular expression
+to fix the typos and ensure the same data is kept in a single column. 
