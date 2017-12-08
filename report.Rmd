@@ -100,7 +100,8 @@ tables from both the "all heroes" layout as well as every individual hero layout
 heroes into a single large table with an added column of hero names. So one player's profile page yields up to 8 tables. 
 
 Out of the 16500 players, around 1200 or so have their information misrepresented on overwatchtracker, causing "pages unfound"
-error when using their battle tags to make url requests. Fortunately this still leaves us enough data to work with. Now each
+error when using their battle tags to make url requests. Addtionally, there are about 3000 players don't have an SR for the 
+current season. Fortunately this still leaves us enough data to work with. Now each
 player has their statistics stored in eight tables, namely tables "Hero Specific", "Combat", "Assists", "Best", "Average", 
 "Match Awards", "Game" and "Miscellaneous". We proceed by binding these tables across all players with a new column indicating
 the player's battle tag corresponding to each row. The final products are eight tables under the same names, each having
@@ -133,45 +134,101 @@ main hero, hero difficulty and hero class. Battle tags, SRs main heroes are scra
 variables are manually typed into a table called `dfHero` and then joined with `dfPlayer` by hero names. Because all eight tables
 in `dfMerged` have columns `Player` and `hero`, we can join any of them with `dfPlayer` by these two columns as the need arises. 
 
-
+Additional data manipulation for each particular analysis will be explained in the next section. In this project, we mostly use
+packages `dplyr` and `tidyr` to transform data frames into what we need. 
 
 # Analyses and Visualization
 
 ## Overall distribution of SR and hero/class usage.
 
 First let's take a look at the distribution of SR by plotting a histogram. Doing this only requires the `dfPlayer` table so no
-additional data manipulation needed. Figure 1 is a histogram of SR with an overlaying density curve
+additional data manipulation needed. Figure 1 is a histogram of SR with an overlaying density curve. We can see that the distribution
+of SR closely resembles a normal distribution with mean around 2700. This is a nice distribution for a skill rating system.
+A very noticeable trait of this histogram is the spike at 3000. After a closer look at the underlying data reveals that there are
+442 players with an SR of exactly 3000. The reason behind this is that players with SR higher than 3000 will receive continual SR penalties if
+they don't play at least seven games per week. For SR within the range of 3000 to 4000, it only takes a few days to decay to 3000, at
+which point no further penalty is applied. Among the 12147 players in our datasets, only 2799 of them have an SR at 3000 or above. This
+means at least one sixth of high level players are severely affected by the SR decay, and that's not counting the ones whose SR are
+still decaying but haven't dropped to 3000 just yet.
 
-```{r, fig.cap = 'Histogram of Skill Rating'}
-combat = dfMerged$Game %>% filter(hero == 'ALL HEROES', num(`Games Played`) > 50) %>%
-  left_join(dfPlayer, by = c('Player' = 'btags')) %>% 
-  inner_join(dfMerged$Combat %>% filter(hero == 'ALL HEROES'), by = c('Player')) %>%
-  mutate(`Time Played` = hours(`Time Played` %>% str_replace('hours', '') %>% as.numeric()) %>% period_to_seconds())
-
+```{r, fig.cap = 'Histogram of Skill Rating', fig.height = 3.5, fig.width = 5}
 ## histogram of SR
 p = ggplot(dfPlayer, aes(SR)) +
   geom_histogram(aes(y = ..density..), fill = 'lightblue', color = 'white') +
   geom_line(stat = 'density', color = 'magenta') +
-  ggtitle('Histogram of SR')
+  ## ggtitle('Histogram of SR')
 p1 = plot_custom(p)
 p1
 ```
 
-```{r}
+Now let's switch our focus to hero usage. The data preparation step for this analysis is somewhat complicated.
+We first join the table `dfMerged$Game` with `dfPlayer` by column `Player` to get the SR and SR tier information.
+Then join the output with `dfHero` to get hero specific information. After that, we want to group the rows by
+`Player`, rank the play time of each hero in each group and get the percentage of time a player spent on each
+hero. Functions `arrange`, `group_by` and `mutate` can achieve this purpose, and function `row_number` proves to
+be very useful when it comes to creating a rank column. We name the output table `heroUsage`.
+
+Figure 2 is a bar chart of the number of players that "main" each hero (use one hero the most). Heroes are grouped and colored
+by their classes, and the color of hero names indicates hero's difficulty to play (green: easy, yellow: medium, red: hard). 
+From the bar charts we can notice a few things about hero usage:
++ The most noticeable thing in the bar chart is that there are far more Mercy mains than any other heroes.  
++ Very few players main defense heroes.
++ Hero difficulty appears to have a slight influence on players' choice of mains. Four out of seven hard heroes
+are rarely mained, while most easy heroes are often used. 
+
+Plotting a bar chart of the players' total time spent on each hero gives us an almost identical plot. So we omit the result
+to save space for other interesting findings. 
+
+```{r, fig.cap = 'Distribution of Main Heroes', fig.height = 4, fig.width = 6}
 ## table of hero usage
 heroUsage = dfMerged$Game %>% filter(!(hero == 'ALL HEROES')) %>% 
   mutate(hero = hero %>% str_replace('TORBJÖRN', 'TORBJORN') %>%
            str_replace("SOLDIER: 76", 'SOLDIER-76') %>%
            str_replace('D.VA', 'DVA') %>%
            str_replace("LÚCIO", 'LUCIO')) %>%
-  left_join(dfPlayer %>% select(btags, SR, Tier), by = c('Player' = 'btags')) %>%
+  left_join(dfPlayer %>% select(btags, SR, Tier) %>% distinct(), by = c('Player' = 'btags')) %>%
   left_join(dfHero, by = 'hero') %>%
   arrange(Player, desc(`Time Played`)) %>%
   group_by(Player) %>% mutate(rank = row_number(), totalTime = sum(`Time Played`)) %>%
-  mutate(usePercentage = `Time Played` / totalTime * 100)
+  mutate(usePercentage = `Time Played` / totalTime * 100) %>%
+  mutate(hero = factor(hero, levels = dfHero$hero),
+         class = factor(class, levels = unique(dfHero$class)),
+         difficulty = factor(difficulty, levels = c('Easy', 'Medium', 'Hard')))
+
+## bar chart of mained heroes
+p = heroUsage %>% filter(rank == 1) %>% group_by(hero) %>%
+  summarise(class = unique(class), count = n(), difficulty = unique(difficulty)) %>%
+  ggplot(aes(class, count, group = hero, fill = class)) +
+  geom_col(position = 'dodge', color = 'white') +
+  geom_text(aes(label = hero, color = difficulty), position = position_dodge(0.9),
+            angle = 90, size = 1.5, hjust = -0.2, show.legend = FALSE) +
+  ylim(c(0, 2500))
+plot_custom(p) + scale_color_manual(values = c('mediumseagreen', 'orange', 'red'))
+
+## top and bottom five most played heroes
+p = heroUsage %>% filter(rank == 1) %>% group_by(hero) %>%
+  summarise(class = unique(class), `Time Played` = sum(`Time Played`), difficulty = unique(difficulty)) %>%
+  ggplot(aes(class, `Time Played`, group = hero, fill = class)) +
+  geom_col(position = 'dodge', color = 'white') +
+  geom_text(aes(label = hero, color = difficulty), position = position_dodge(0.9),
+            angle = 90, size = 1.5, hjust = -0.2, show.legend = FALSE) 
+plot_custom(p) + scale_color_manual(values = c('mediumseagreen', 'orange', 'red'))
 ```
 
+Another aspect of hero usage is to look at how players' attribute their total play time with each hero. For example, some
+players are good at switching heroes mid match to counter their opponents, while other players can only play one or two heroes
+good enough to compete in competitive games. 
+
 ## Compare game stats and hero usage between players in different levels.
+
+```{r}
+combat = dfMerged$Game %>% filter(hero == 'ALL HEROES', num(`Games Played`) > 50) %>%
+  left_join(dfPlayer, by = c('Player' = 'btags')) %>% 
+  inner_join(dfMerged$Combat %>% filter(hero == 'ALL HEROES'), by = c('Player')) %>%
+  mutate(`Time Played` = hours(`Time Played` %>% str_replace('hours', '') %>% as.numeric()) %>% period_to_seconds())
+
+## hero usage: can compute the log ratio of usage in high level over in low level
+```
 
 ## Does meta heroes performe better than others?
 
