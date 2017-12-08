@@ -1,6 +1,7 @@
 ---
 title: "Deep Dive into Overwatch Players Career Data"
 author: 'Xinghui Song'
+date: 'December 11, 2017'
 output: 
   pdf_document:
     number_sections: true
@@ -26,7 +27,9 @@ library(stringr)
 library(ggthemes)
 library(grid)
 library(scales)
+library(lubridate)
 source('./functions.R')
+load('./data_cleaned.RData')
 ```
 
 # Motivation
@@ -47,11 +50,10 @@ underpowered.
 The main goal of this project is to analyze the hero usage and game statistics, and how their distributions vary across different
 levels (SR, SR tier) of players. More specifically, we will be looking at the data from the following four aspects:
 
-+ exploratory analysis on the distribution of SR and hero/class usage
-+ compare game stats between players in different levels
-+ compare hero usage across different levels
-+ does meta heroes performe better than others
-+ is it possible to predict SR based on overall/average statistics
++ Overall distribution of SR and hero/class usage.
++ Compare game stats and hero usage between players in different levels.
++ Does meta heroes performe better than others?
++ Is it possible to predict SR based on overall/average statistics?
 
 
 # Data Sources
@@ -66,7 +68,7 @@ group of stats. Take player Wraxu#1747 for example, his career profile can be fo
 https://playoverwatch.com/en-gb/career/pc/us/Wraxu-1747. By simply replacing the battle tag string at the end, we can
 scrape every player's data as long as the player participates in the current competitive season. 
 
-On each player"s profile page, there are usually up to eight tables under categories "Hero Specific", "Combat", "Assists", 
+On each player's profile page, there are usually up to eight tables under categories "Hero Specific", "Combat", "Assists", 
 "Best", "Average", "Match Awards", "Game" and "Miscellaneous" for each hero he/she played. We first bind tables in the same category
 but of different heroes into one large table, and then bind tables across all players. So in the end, we have eight large tables
 corresponding to the eight categories mentioned above. Each row of those tables has two additional variables to identify which 
@@ -115,9 +117,62 @@ Many large integers on the profile pages have commas, which renders the function
 use `str_replace_all` to replace all commas with empty string, and then convert them to numeric values. As for the duration
 variables like `Time Spent on Fire` and `Objective Time`, we first make sure that the string has format "hh:mm:ss". If not, 
 it can only be of "mm:ss" format and we can fix that by prepend it with "00:". After that, the variable can be converted to
-a `Period` object by using function `hms` in package `lubridate`. 
+a `Period` object by using function `hms` in package `lubridate`. However `Period` objects appear to be very buggy when put
+into a data frame. Therefore we decided to store all time period variables as numeric values indicating the number of seconds
+using the `period_2_seconds` function.
 
 Another thing that needs to be cleaned up is typos. The reason this could be an issue is that the typos usually occur in variable
 names. For example, variable `Deaths` is misspelled as `Death` in many tables, which causes the same data being split into
 two columns and a lot of missing values as a result. Again, we use the `str_replace_all` function with regular expression
 to fix the typos and ensure the same data is kept in a single column. 
+
+## Preparing Data Frames for Analyses
+
+Data frame `dfPlayer` plays an important role in each analysis. It contains information on each player's battle tag, SR, SR tier,
+main hero, hero difficulty and hero class. Battle tags, SRs main heroes are scraped from the web as mentioned earlier, while the other
+variables are manually typed into a table called `dfHero` and then joined with `dfPlayer` by hero names. Because all eight tables
+in `dfMerged` have columns `Player` and `hero`, we can join any of them with `dfPlayer` by these two columns as the need arises. 
+
+
+
+# Analyses and Visualization
+
+## Overall distribution of SR and hero/class usage.
+
+First let's take a look at the distribution of SR by plotting a histogram. Doing this only requires the `dfPlayer` table so no
+additional data manipulation needed. Figure 1 is a histogram of SR with an overlaying density curve
+
+```{r, fig.cap = 'Histogram of Skill Rating'}
+combat = dfMerged$Game %>% filter(hero == 'ALL HEROES', num(`Games Played`) > 50) %>%
+  left_join(dfPlayer, by = c('Player' = 'btags')) %>% 
+  inner_join(dfMerged$Combat %>% filter(hero == 'ALL HEROES'), by = c('Player')) %>%
+  mutate(`Time Played` = hours(`Time Played` %>% str_replace('hours', '') %>% as.numeric()) %>% period_to_seconds())
+
+## histogram of SR
+p = ggplot(dfPlayer, aes(SR)) +
+  geom_histogram(aes(y = ..density..), fill = 'lightblue', color = 'white') +
+  geom_line(stat = 'density', color = 'magenta') +
+  ggtitle('Histogram of SR')
+p1 = plot_custom(p)
+p1
+```
+
+```{r}
+## table of hero usage
+heroUsage = dfMerged$Game %>% filter(!(hero == 'ALL HEROES')) %>% 
+  mutate(hero = hero %>% str_replace('TORBJÖRN', 'TORBJORN') %>%
+           str_replace("SOLDIER: 76", 'SOLDIER-76') %>%
+           str_replace('D.VA', 'DVA') %>%
+           str_replace("LÚCIO", 'LUCIO')) %>%
+  left_join(dfPlayer %>% select(btags, SR, Tier), by = c('Player' = 'btags')) %>%
+  left_join(dfHero, by = 'hero') %>%
+  arrange(Player, desc(`Time Played`)) %>%
+  group_by(Player) %>% mutate(rank = row_number(), totalTime = sum(`Time Played`)) %>%
+  mutate(usePercentage = `Time Played` / totalTime * 100)
+```
+
+## Compare game stats and hero usage between players in different levels.
+
+## Does meta heroes performe better than others?
+
+## Is it possible to predict SR based on overall/average statistics?

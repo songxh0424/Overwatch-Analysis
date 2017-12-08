@@ -29,6 +29,23 @@ toPeriod = function(str_vec) {
 ## convert numbers like 1,000,000 to numeric
 num = . %>% str_replace_all(',', '') %>% as.numeric()
 
+## convert strings like '1 minute' to seconds
+parseTimePlayed = function(string) {
+  words = str_split(string, '[:blank:]+')[[1]]
+  units = num(words[1])
+  time = switch(words[2] %>% str_to_lower(),
+                'hour' = ,
+                'hours' = hours(units) %>% period_to_seconds(),
+                'minute' = ,
+                'minutes' = minutes(units) %>% period_to_seconds(),
+                'second' = ,
+                'seconds' = seconds(units)
+                )
+  if(is.null(time)) return(NA)
+  return(time)
+}
+parseTimePlayed = parseTimePlayed %>% Vectorize()
+
 ## plotting and theming functions
 theme_Publication <- function(base_size=10, legend.pos = "bottom") {
       (theme_foundation(base_size=base_size)
@@ -68,7 +85,7 @@ scale_colour_Publication <- function(...){
       discrete_scale("colour","Publication",manual_pal(values = c("#386cb0","#fdb462","#7fc97f","#ef3b2c","#662506","#a6cee3","#fb9a99","#984ea3","#ffff33", "#FFA500", "#3cb371", "#1E90FF")), ...)
 }
 
-plot_custom <- function(p, saveTo = NULL, base_size=10, legend.pos = "bottom") {
+plot_custom <- function(p, saveTo = NULL, base_size=10, legend.pos = "right") {
   out = p + theme_Publication(base_size, legend.pos) + scale_fill_Publication() + scale_colour_Publication()
   if(is.null(saveTo)) return(out)
   ggsave(saveTo, out)
