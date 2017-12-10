@@ -70,9 +70,8 @@ save(dfHero, dfPlayer, dfMerged, file = 'data_cleaned.RData')
 ## table combat
 combat = dfMerged$Game %>% filter(hero == 'ALL HEROES', num(`Games Played`) > 50) %>%
   left_join(dfPlayer, by = c('Player' = 'btags')) %>% 
-  ## inner_join(dfMerged$Combat %>% select(Player, hero, `Fire Time`, `Objective Time`),
-  inner_join(dfMerged$Combat %>% filter(hero == 'ALL HEROES'), by = c('Player')) %>%
-  mutate(`Time Played` = hours(`Time Played` %>% str_replace('hours', '') %>% as.numeric()) %>% period_to_seconds())
+  mutate(`Win Percentage` = num(`Games Won`) / num(`Games Played`) * 100) %>%
+  inner_join(dfMerged$Combat %>% filter(hero == 'ALL HEROES'), by = c('Player'))
 
 ## table of hero usage
 heroUsage = dfMerged$Game %>% filter(!(hero == 'ALL HEROES')) %>% 
@@ -85,6 +84,10 @@ heroUsage = dfMerged$Game %>% filter(!(hero == 'ALL HEROES')) %>%
   arrange(Player, desc(`Time Played`)) %>%
   group_by(Player) %>% mutate(rank = row_number(), totalTime = sum(`Time Played`))
 
+## combat = dfMerged$Game %>% filter(hero == 'GENJI', num(`Games Played`) >= 10) %>%
+##   left_join(dfPlayer, by = c('Player' = 'btags')) %>% 
+##   ## inner_join(dfMerged$Combat %>% select(Player, hero, `Fire Time`, `Objective Time`),
+##   inner_join(dfMerged$Combat %>% filter(hero == 'GENJI'), by = c('Player'))
 ################################################################################
 ## analyses
 ################################################################################
@@ -97,10 +100,7 @@ p = ggplot(dfPlayer, aes(SR)) +
 p1 = plot_custom(p)
 
 ## win percentage vs. SR
-ggdat = dfMerged$Game %>% filter(hero == 'ALL HEROES', as.numeric(`Games Played`) > 50) %>%
-  mutate(`Win Percentage` = round(as.numeric(`Games Won`) / as.numeric(`Games Played`) * 100, digits = 2)) %>%
-  left_join(dfPlayer, by = c('Player' = 'btags'))
-p = ggplot(ggdat, aes(SR, `Win Percentage`, color = Tier)) +
+p = ggplot(combat, aes(SR, `Win Percentage`, color = Tier)) +
   ## geom_text(aes(label = Player))
   geom_point(alpha = 0.7) + geom_smooth(color = 'black')
 p1 = plot_custom(p)
@@ -127,7 +127,15 @@ p = ggplot(combat, aes(SR, num(Eliminations) / num(Deaths), color = Tier)) +
 p4 = plot_custom(p, legend.pos = 'right')
 
 ## similar plots can be done for solo kills and melee final blows
+p = ggplot(combat, aes(SR, num(`Melee Final Blows`) / num(`Games Played`), color = Tier)) +
+  geom_point(alpha = 0.5) + geom_smooth(color = 'black')
+p5 = plot_custom(p, legend.pos = 'right')
+p5
 
+p = ggplot(combat, aes(SR, num(`Hero Damage Done`) / num(`Games Played`), color = Tier)) +
+  geom_point(alpha = 0.5) + geom_smooth(color = 'black')
+p6 = plot_custom(p, legend.pos = 'right')
+p6
 
 ## create a column plot of the percentage of players in each category
 

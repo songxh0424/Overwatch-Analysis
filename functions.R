@@ -71,7 +71,7 @@ theme_Publication <- function(base_size=10, legend.pos = "bottom") {
                legend.title = element_text(face="italic"),
                plot.margin=unit(c(10,5,5,5),"mm"),
                strip.background=element_rect(colour="#f0f0f0",fill="#f0f0f0"),
-               strip.text = element_text(face="bold")
+               strip.text = element_text(face="italic")
           ))
 }
 
