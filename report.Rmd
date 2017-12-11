@@ -190,6 +190,7 @@ heroUsage = dfMerged$Game %>% filter(!(hero == 'ALL HEROES')) %>%
   left_join(dfPlayer %>% select(btags, SR, Tier) %>% distinct(), by = c('Player' = 'btags')) %>%
   left_join(dfHero, by = 'hero') %>%
   arrange(Player, desc(`Time Played`)) %>%
+  replace_na(list(`Time Played` = 0)) %>%
   group_by(Player) %>% mutate(rank = row_number(), totalTime = sum(`Time Played`)) %>%
   mutate(usePercentage = `Time Played` / totalTime * 100) %>%
   mutate(hero = factor(hero, levels = dfHero$hero),
@@ -203,7 +204,7 @@ p = heroUsage %>% filter(rank == 1) %>% group_by(hero) %>%
   geom_col(position = 'dodge', color = 'white') +
   geom_text(aes(label = hero, color = difficulty), position = position_dodge(0.9),
             angle = 90, size = 1.8, hjust = -0.2, show.legend = FALSE) +
-  ylim(c(0, 2500))
+  ylim(c(0, 2500)) + ylab('Number of Players')
 plot_custom(p) + scale_color_manual(values = c('mediumseagreen', 'orange', 'red'))
 ```
 
@@ -227,7 +228,7 @@ p = heroUsage %>% group_by(hero) %>%
   geom_col(position = 'dodge', color = 'white') +
   geom_text(aes(label = hero, color = difficulty), position = position_dodge(0.9),
             angle = 90, size = 1.8, hjust = -0.2, show.legend = FALSE) +
-  ylim(c(0, 1e8))
+  ylim(c(0, 1e8)) + ylab('Time Played (seconds)')
 plot_custom(p) + scale_color_manual(values = c('mediumseagreen', 'orange', 'red'))
 ```
 
@@ -336,16 +337,26 @@ p = ggplot(ggdat, aes(class, `Time Played`, group = hero, fill = class)) +
   geom_col(position = 'dodge', color = 'white') +
   geom_text(aes(label = hero, color = difficulty), position = position_dodge(0.9),
             angle = 90, size = 1.8, hjust = -0.2, show.legend = FALSE) +
-  ylim(c(0, 12e6)) + geom_hline(yintercept = 3000000, color = 'grey78', linetype = 'dotted')
+  ylim(c(0, 12e6)) + geom_hline(yintercept = 3000000, color = 'grey78', linetype = 'dotted') +
+  ylab('Time Played (seconds)')
 plot_custom(p) + scale_color_manual(values = c('mediumseagreen', 'orange', 'red'))
 ```
 
 Note that half of the roster are used much more often than the other half. This distinction is marked in Figure 6 by grey dotted line.
 It appears that the heroes above this line can be regarded as heroes in the current meta, while the others are less favorable choices
 in current season. Now let's see if the "meta" heroes truly out-perform the other heroes. Figure 7 is a lollipop chart of all heroes'
-win rates. 
+win rates. The win rates are calculated as the weighted average of all players' percentage of games won (weighted by the number of games 
+each player spent playing the hero). The size of dots are scaled to be proportional to the hero's total usage in seconds. 
 
-```{r, fig.height = 5.5, fig.width = 7}
+According to Figure 7, 10 out of 13 of the top half of the roster have a win rate higher than 50%, while for the other half, the ratio
+is 7 out of 13. The top 5 most used heroes especially have very decent win rate over most other heroes. However, this doesn't mean
+the "off-meta" heroes are prone to lose. Some of the less-picked heroes like Hanzo Doomfist and Reaper indeed have low win rates,
+but heroes like Orisa, Symmetra, Mei, Torbjorn and Sombra are some of the least played heroes but their win rates
+are comparable to the top 5 meta heroes. This could be the case where the players who use rarely-picked heroes are usually highly skilled
+and confident in their capabilities of playing those heroes. So those heroes have high win rates but are not always powerful in any player's
+hands. Nevertheless, this is further proof that "meta" should be taken more as guidelines and suggestions rather than universal rules. 
+
+```{r, fig.height = 5.5, fig.width = 7, fig.cap = 'Win rate of heroes sorted by total usage'}
 proWinPerc = dfMerged$Game %>%
   mutate(hero = hero %>% str_replace('TORBJÖRN', 'TORBJORN') %>%
            str_replace("SOLDIER: 76", 'SOLDIER-76') %>%
@@ -364,9 +375,56 @@ winRate = winRate %>% mutate(hero = factor(hero, levels = hero),
                              class = factor(class, levels = c('Offense', 'Defense', 'Tank', 'Support')))
 p = ggplot(winRate, aes(hero, `Win Percentage`, color = class)) +
   geom_segment(aes(y = 39, x = hero, yend = `Win Percentage`, xend = hero), color = "grey78") + 
-  geom_point(aes(size = `Time Played`)) + coord_flip() + guides(size = FALSE)
+  geom_point(aes(size = `Time Played`)) + coord_flip() + guides(size = FALSE) + xlab('Hero')
 plot_custom(p)
 ```
 
 ## Is it possible to predict SR based on overall/average statistics?
 
+```{r}
+library(cluster)
+heroUsage.wide = heroUsage %>% select(Player, rank, usePercentage) %>%
+  right_join(data.frame(Player = rep(unique(heroUsage$Player), each = 26),
+                        rank = rep(1:26, length(unique(heroUsage$Player)))),
+             by = c('Player', 'rank')) %>%
+  replace_na(list(usePercentage = 0)) %>%
+  spread(key = rank, value = usePercentage) %>% ungroup()
+stats = heroUsage.wide[, -1]
+## stats = scale(stats)
+
+## PCA
+pca = princomp(stats)
+explainedVar = cumsum(pca$sdev^2) / sum(pca$sdev^2)
+p = ggplot(data = data.frame(), aes(1:10, explainedVar[1:10])) +
+  geom_line(color = '#1E90FF') + geom_point(color = '#1E90FF') +
+  xlab('Number of Principal Components') + ylab('% of Explained Variance') +
+  scale_x_continuous(breaks = c(1, 4, 7, 10)) 
+plot_custom(p)
+
+p2 = ggplot(as.data.frame(pca$scores), aes(Comp.1, Comp.2)) + geom_point()
+plot_custom(p2)
+
+## kmeans
+distance = dist(stats)
+fit1 = kmeans(stats, 3)
+sil1 = silhouette(fit1$cluster, distance)
+plot(sil1)
+result1 = heroUsage.wide %>% mutate(cluster = fit$cluster)
+
+fit2 = kmeans(stats, 2)
+sil2 = silhouette(fit2$cluster, distance)
+plot(sil2)
+result2 = heroUsage.wide %>% mutate(cluster = fit$cluster)
+
+pcaScores = pca$scores[, 1:2]
+dist.pca = dist(pcaScores)
+fit4 = kmeans(pcaScores, 2)
+sil4 = silhouette(fit4$cluster, dist.pca)
+plot(sil4)
+ggplot(data.frame(pcaScores), aes(Comp.1, Comp.2, color = fit4$cluster)) + geom_point()
+
+## pam
+fit3 = pam(distance, 2, diss = TRUE)
+sil3 = silhouette(fit3$clustering, distance)
+plot(sil3)
+```
