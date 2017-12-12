@@ -51,9 +51,9 @@ The main goal of this project is to analyze the hero usage and game statistics, 
 levels (SR, SR tier) of players. More specifically, we will be looking at the data from the following four aspects:
 
 + Overall distribution of SR and hero/class usage.
-+ Compare game stats and hero usage between players in different levels.
-+ Does meta heroes performe better than others?
-+ Is it possible to predict SR based on overall/average statistics?
++ Compare game stats and hero usage among players in different levels.
++ Do meta heroes perform better than others?
++ Use PCA and clustering to categorize players with regard to hero usage. 
 
 
 # Data Sources
@@ -316,7 +316,7 @@ From the scatter plots, we can see that the relationship between these statistic
 and basic understanding of the game. There is nothing abnormal happening in these plots that makes one question the validity
 of the current SR system.
 
-## Does meta heroes perform better than others?
+## Do meta heroes perform better than others?
 
 Since it's a team based game, "What is the current meta" is a perpetually discussed question among Overwatch players. "Meta"
 means certain team compositions and strategies that have a better chance of winning the game. Meta is usually considered to
@@ -337,7 +337,7 @@ p = ggplot(ggdat, aes(class, `Time Played`, group = hero, fill = class)) +
   geom_col(position = 'dodge', color = 'white') +
   geom_text(aes(label = hero, color = difficulty), position = position_dodge(0.9),
             angle = 90, size = 1.8, hjust = -0.2, show.legend = FALSE) +
-  ylim(c(0, 12e6)) + geom_hline(yintercept = 3000000, color = 'grey78', linetype = 'dotted') +
+  ylim(c(0, 12e6)) + geom_hline(yintercept = 3000000, color = 'grey40', linetype = 'dotted') +
   ylab('Time Played (seconds)')
 plot_custom(p) + scale_color_manual(values = c('mediumseagreen', 'orange', 'red'))
 ```
@@ -350,7 +350,7 @@ each player spent playing the hero). The size of dots are scaled to be proportio
 
 According to Figure 7, 10 out of 13 of the top half of the roster have a win rate higher than 50%, while for the other half, the ratio
 is 7 out of 13. The top 5 most used heroes especially have very decent win rate over most other heroes. However, this doesn't mean
-the "off-meta" heroes are prone to lose. Some of the less-picked heroes like Hanzo Doomfist and Reaper indeed have low win rates,
+the "off-meta" heroes are prone to lose. Some of the 2ess-picked heroes like Hanzo Doomfist and Reaper indeed have low win rates,
 but heroes like Orisa, Symmetra, Mei, Torbjorn and Sombra are some of the least played heroes but their win rates
 are comparable to the top 5 meta heroes. This could be the case where the players who use rarely-picked heroes are usually highly skilled
 and confident in their capabilities of playing those heroes. So those heroes have high win rates but are not always powerful in any player's
@@ -379,9 +379,21 @@ p = ggplot(winRate, aes(hero, `Win Percentage`, color = class)) +
 plot_custom(p)
 ```
 
-## Is it possible to predict SR based on overall/average statistics?
+## Use PCA and clustering to categorize players with regard to hero usage
 
-```{r}
+We have mentioned that there are generally two types of players: the ones that mostly use one or two heroes, and the ones
+that can utilize multiple heroes decently well. Here we will use unsupervised learning tools like PCA and K-means clustering
+to categorize players based on their hero usage. For this analysis, we reshape the `heroUsage` table into a data frame `heroUsage.wide` 
+that has 26 numeric variables. The first variable corresponds to the percentage of time each player spent on his most played hero, and
+the second corresponds to the second most played hero, so on and so forth. The transformation of data frame can be done using
+the `spread` function in `tidyr` package. 
+
+First we will perform PCA on `heroUsage.wide`. Figure 8 shows the the percentage of explained variance when the first few PCs are
+included. The first PC already covers nearly 85% of the total variance. Adding the second PC will give us a coverage of 95%. We
+continue to use the first two principal components in our clustering analysis. As discussed earlier, a straightforward approach
+would be to divide all players into two categories. Now we use K-means algorithm to separate our data into two clusters.
+
+```{r, fig.cap = 'Explained variance plot', fig.height = 4, fig.width = 5.5}
 library(cluster)
 heroUsage.wide = heroUsage %>% select(Player, rank, usePercentage) %>%
   right_join(data.frame(Player = rep(unique(heroUsage$Player), each = 26),
@@ -400,31 +412,29 @@ p = ggplot(data = data.frame(), aes(1:10, explainedVar[1:10])) +
   xlab('Number of Principal Components') + ylab('% of Explained Variance') +
   scale_x_continuous(breaks = c(1, 4, 7, 10)) 
 plot_custom(p)
+```
 
-p2 = ggplot(as.data.frame(pca$scores), aes(Comp.1, Comp.2)) + geom_point()
-plot_custom(p2)
+As seen in silhouette plot (Figure 9), the sihouette coefficients of the two clusters are 0.61 and 0.46. And the average silhouette
+width is 0.57. The values are not very high but they still indicate a reasonable clustering result. It is also possible to do a
+clustering with 3 or 4 clusters, or use more principal components or no PCA at all. But based on some experimenting behind the scenes,
+using 2 PCs with 2 clusters gives a better and more interpreble result. 
 
-## kmeans
-distance = dist(stats)
-fit1 = kmeans(stats, 3)
-sil1 = silhouette(fit1$cluster, distance)
-plot(sil1)
-result1 = heroUsage.wide %>% mutate(cluster = fit$cluster)
 
-fit2 = kmeans(stats, 2)
-sil2 = silhouette(fit2$cluster, distance)
-plot(sil2)
-result2 = heroUsage.wide %>% mutate(cluster = fit$cluster)
+
+```{r, fig.cap = 'Silhouette plot of the clustering result', fig.width = 7, fig.height = 4}
+## p2 = ggplot(as.data.frame(pca$scores), aes(Comp.1, Comp.2)) + geom_point()
+## plot_custom(p2)
 
 pcaScores = pca$scores[, 1:2]
 dist.pca = dist(pcaScores)
-fit4 = kmeans(pcaScores, 2)
-sil4 = silhouette(fit4$cluster, dist.pca)
-plot(sil4)
-ggplot(data.frame(pcaScores), aes(Comp.1, Comp.2, color = fit4$cluster)) + geom_point()
+fit = kmeans(pcaScores, 2)
+sil = silhouette(fit$cluster, dist.pca)
+plot(sil)
+```
 
-## pam
-fit3 = pam(distance, 2, diss = TRUE)
-sil3 = silhouette(fit3$clustering, distance)
-plot(sil3)
+
+```{r, fig.cap = 'Scatter plot of PC scores', fig.width = 5.5, fig.height = 4}
+p = pcaScores %>% data.frame() %>% mutate(cluster = fit$cluster %>% factor()) %>%
+  ggplot(aes(Comp.1, Comp.2, color = cluster)) + geom_point(size = 0.5, alpha = 0.5)
+plot_custom(p)
 ```
