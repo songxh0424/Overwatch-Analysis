@@ -1,0 +1,437 @@
+---
+title: "Deep Dive into Overwatch Players Career Data"
+author: 'Xinghui Song'
+date: 'December 11, 2017'
+output: 
+  prettydoc::html_pretty:
+    theme: architect
+    highlight: github
+    toc: true
+fontsize: 10pt
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, fig.align = "center", message = FALSE, warning = FALSE, comment = "", cache = FALSE)
+library(knitr)
+library(ggplot2)
+library(gridExtra)
+library(GGally)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(ggthemes)
+library(grid)
+library(scales)
+library(lubridate)
+source('./functions.R')
+load('./data_cleaned.RData')
+```
+
+# Motivation
+
+Since its official release back in May 2016, Overwatch has quickly became one of the most popular online multiplayer 
+first person shooter video game, garnering over 35 million players in total over the past year. For a online game with such
+popularity, a massive amount of data are generated everyday. These data are proved to be invaluable in evaluating the 
+balanceness of playable characters and the fairness of matchmaking. 
+
+To give a bit more information on the game, at the moment, there are 26 playable characters (aka. heroes)
+in the Overwatch roster. Each competitive game separates players into two teams of six. Players on the same team must pick six
+different heroes. After the first 10 "Placement matches", a player is given a skill rating (SR) calculated based on his/her
+performance in those matches as well as the match outcomes. After that, every competitive game the player participates will
+result in an addition or subtraction to the player's current SR. Due to the nature of this SR system, it is very important
+for the game developers to constantly tweak the gameplay design of heroes to ensure that no hero becomes too overpowered or 
+underpowered.
+
+The main goal of this project is to analyze the hero usage and game statistics, and how their distributions vary across different
+levels (SR, SR tier) of players. More specifically, we will be looking at the data from the following four aspects:
+
++ Overall distribution of SR and hero/class usage.
++ Compare game stats and hero usage among players in different levels.
++ Do meta heroes perform better than others?
++ Use PCA and clustering to categorize players with regard to hero usage. 
+
+
+# Data Sources
+
+Players' statistics can be found on various website including the [official Overwatch website](https://playoverwatch.com) 
+and [overwatchtracker.com](https://overwatchtracker.com).
+Datasets used in this project are scraped from these two websites using R package `rvest`. We first scrape players'
+battle tags (player id) overwatchtracker [leaderboard](https://overwatchtracker.com/leaderboards/pc/global). Then we use
+the battle tags to access each individual player's career statistics page and scrape all relevant tables. The final
+output contains information on 16500 players, each having around 200 or so small tables for different heroes and different
+group of stats. Take player Wraxu#1747 for example, his career profile can be found at 
+https://playoverwatch.com/en-gb/career/pc/us/Wraxu-1747. By simply replacing the battle tag string at the end, we can
+scrape every player's data as long as the player participates in the current competitive season. 
+
+On each player's profile page, there are usually up to eight tables under categories "Hero Specific", "Combat", "Assists", 
+"Best", "Average", "Match Awards", "Game" and "Miscellaneous" for each hero he/she played. We first bind tables in the same category
+but of different heroes into one large table, and then bind tables across all players. So in the end, we have eight large tables
+corresponding to the eight categories mentioned above. Each row of those tables has two additional variables to identify which 
+player and which hero this row belongs to. The tables are then stored in a list and saved as an RData file. 
+
+Since we are only concerned with competitive games, we restrict the data to the current competitive season, which starts in early
+November and ends mid-December. There are over 200 variables with eight tables combined. Some of the variables that we are most
+interested in include `SR`, `Games Played`, `Games Won`, `Eliminations`, `Deaths`, `Time Spent on Fire`, `Objective Time`, etc.
+All variables are saved as characters during the scraping process, most of which will be converted to numeric or time period type
+when analyses are carried out.
+
+# Data Gathering and Processing
+
+## Scraping data from the web
+
+Here we will explain the data gathering process in further details. The first step is to get a decent amount of players' battle
+tags to pull data from. The overwatchtracker's leaderboard has an extensive list of players that occupy over 1650 webpages with
+exactly 100 players on each page. Additionally, the url of these pages are nicely formatted as
+https://overwatchtracker.com/leaderboards/pc/global/CompetitiveRank?page=1&mode=1. This allows us to effortlessly access each
+page by simply changing the page number. During this step, we randomly sample 10 players on each page from page 1 to page 1650,
+which covers the SR range of 900 to 4800. This gives us the battle tags of 16500 players across different skill levels. 
+
+After getting the battle tags, we plug each one of them into the overwatch career profile url mentioned in last section. At the
+top of a player's profile page, there is his current SR and an image of the hero he used the most. Both of those are important
+to our analyses so they are stored in a list object corresponding to the player. The main portion of the profile page are a
+collection of tables, usually 7 or 8 tables. The default layout of those tables displays aggregated statistics of all heroes.
+Statistics of specific heroes can be accessed through a dropdown menu. For each player, we use `rvest` package to scrape all 
+tables from both the "all heroes" layout as well as every individual hero layout, and then bind the same table from different
+heroes into a single large table with an added column of hero names. So one player's profile page yields up to 8 tables. 
+
+Out of the 16500 players, around 1200 or so have their information misrepresented on overwatchtracker, causing "pages unfound"
+error when using their battle tags to make url requests. Addtionally, there are about 3000 players don't have an SR for the 
+current season. Fortunately this still leaves us enough data to work with. Now each
+player has their statistics stored in eight tables, namely tables "Hero Specific", "Combat", "Assists", "Best", "Average", 
+"Match Awards", "Game" and "Miscellaneous". We proceed by binding these tables across all players with a new column indicating
+the player's battle tag corresponding to each row. The final products are eight tables under the same names, each having
+roughly 190000 rows. Further data cleaning and analyses will be carried out using these tables, stored in a list object
+called `dfMerged`. The SR and main hero information scraped earlier are stored in a data frame called `dfPlayer`.
+
+## Data Cleaning
+
+In order to avoid type errors when binding tables, all data fields are read as characters at data gathering step. However,
+the majority of the data is meant to be of type numeric or time. We employ packages `stringr` and `lubridate` to convert
+those data to desired format. 
+
+Many large integers on the profile pages have commas, which renders the function `as.numeric` powerless in this case. We first
+use `str_replace_all` to replace all commas with empty string, and then convert them to numeric values. As for the duration
+variables like `Time Spent on Fire` and `Objective Time`, we first make sure that the string has format "hh:mm:ss". If not, 
+it can only be of "mm:ss" format and we can fix that by prepend it with "00:". After that, the variable can be converted to
+a `Period` object by using function `hms` in package `lubridate`. However `Period` objects appear to be very buggy when put
+into a data frame. Therefore we decided to store all time period variables as numeric values indicating the number of seconds
+using the `period_2_seconds` function.
+
+Another thing that needs to be cleaned up is typos. The reason this could be an issue is that the typos usually occur in variable
+names. For example, variable `Deaths` is misspelled as `Death` in many tables, which causes the same data being split into
+two columns and a lot of missing values as a result. Again, we use the `str_replace_all` function with regular expression
+to fix the typos and ensure the same data is kept in a single column. 
+
+## Preparing Data Frames for Analyses
+
+Data frame `dfPlayer` plays an important role in each analysis. It contains information on each player's battle tag, SR, SR tier,
+main hero, hero difficulty and hero class. Battle tags, SRs main heroes are scraped from the web as mentioned earlier, while the other
+variables are manually typed into a table called `dfHero` and then joined with `dfPlayer` by hero names. Because all eight tables
+in `dfMerged` have columns `Player` and `hero`, we can join any of them with `dfPlayer` by these two columns as the need arises. 
+
+Additional data manipulation for each particular analysis will be explained in the next section. In this project, we mostly use
+packages `dplyr` and `tidyr` to transform data frames into what we need. 
+
+# Analyses and Visualization
+
+## Overall distribution of SR and hero/class usage.
+
+First let's take a look at the distribution of SR by plotting a histogram. Doing this only requires the `dfPlayer` table so no
+additional data manipulation needed. Figure 1 is a histogram of SR with an overlaying density curve. We can see that the distribution
+of SR closely resembles a normal distribution with mean around 2700. This is a nice distribution for a skill rating system.
+A very noticeable trait of this histogram is the spike at 3000. After a closer look at the underlying data reveals that there are
+442 players with an SR of exactly 3000. The reason behind this is that players with SR higher than 3000 will receive continual SR penalties if
+they don't play at least seven games per week. For SR within the range of 3000 to 4000, it only takes a few days to decay to 3000, at
+which point no further penalty is applied. Among the 12147 players in our datasets, only 2799 of them have an SR at 3000 or above. This
+means at least one sixth of high level players are severely affected by the SR decay, and that's not counting the ones whose SR are
+still decaying but haven't dropped to 3000 just yet.
+
+```{r, fig.cap = 'Histogram of Skill Rating', fig.height = 3.5, fig.width = 5}
+## histogram of SR
+p = ggplot(dfPlayer, aes(SR)) +
+  geom_histogram(aes(y = ..density..), fill = 'lightblue', color = 'white') +
+  geom_line(stat = 'density', color = 'magenta')
+  ## ggtitle('Histogram of SR')
+p1 = plot_custom(p)
+p1
+```
+
+Now let's switch our focus to hero usage. The data preparation step for this analysis is somewhat complicated.
+We first join the table `dfMerged$Game` with `dfPlayer` by column `Player` to get the SR and SR tier information.
+Then join the output with `dfHero` to get hero specific information. After that, we want to group the rows by
+`Player`, rank the play time of each hero in each group and get the percentage of time a player spent on each
+hero. Functions `arrange`, `group_by` and `mutate` can achieve this purpose, and function `row_number` proves to
+be very useful when it comes to creating a rank column. We name the output table `heroUsage`.
+
+Figure 2 is a bar chart of the number of players that "main" each hero (use one hero the most). Heroes are grouped and colored
+by their classes, and the color of hero names indicates hero's difficulty to play (green: easy, yellow: medium, red: hard). 
+From the bar charts we can notice a few things about hero usage:
+
++ The most noticeable thing in the bar chart is that there are far more Mercy mains than any other heroes. The fact
+that she is the only support hero classified as "Easy" certainly helped.
+
++ Very few players main defense heroes. Only Junkrat has a decent amount of players that mainly use him.
+
++ Hero difficulty appears to have a slight influence on players' choice of mains. Four out of seven hard heroes
+are rarely mained, while most easy heroes are often used. 
+
+```{r, fig.cap = 'Distribution of Main Heroes', fig.height = 4, fig.width = 6}
+## table of hero usage
+heroUsage = dfMerged$Game %>% filter(!(hero == 'ALL HEROES')) %>% 
+  mutate(hero = hero %>% str_replace('TORBJÖRN', 'TORBJORN') %>%
+           str_replace("SOLDIER: 76", 'SOLDIER-76') %>%
+           str_replace('D.VA', 'DVA') %>%
+           str_replace("LÚCIO", 'LUCIO')) %>%
+  left_join(dfPlayer %>% select(btags, SR, Tier) %>% distinct(), by = c('Player' = 'btags')) %>%
+  left_join(dfHero, by = 'hero') %>%
+  arrange(Player, desc(`Time Played`)) %>%
+  replace_na(list(`Time Played` = 0)) %>%
+  group_by(Player) %>% mutate(rank = row_number(), totalTime = sum(`Time Played`)) %>%
+  mutate(usePercentage = `Time Played` / totalTime * 100) %>%
+  mutate(hero = factor(hero, levels = dfHero$hero),
+         class = factor(class, levels = unique(dfHero$class)),
+         difficulty = factor(difficulty, levels = c('Easy', 'Medium', 'Hard')))
+
+## bar chart of mained heroes
+p = heroUsage %>% filter(rank == 1) %>% group_by(hero) %>%
+  summarise(class = unique(class), count = n(), difficulty = unique(difficulty)) %>%
+  ggplot(aes(class, count, group = hero, fill = class)) +
+  geom_col(position = 'dodge', color = 'white') +
+  geom_text(aes(label = hero, color = difficulty), position = position_dodge(0.9),
+            angle = 90, size = 1.8, hjust = -0.2, show.legend = FALSE) +
+  ylim(c(0, 2500)) + ylab('Number of Players')
+plot_custom(p) + scale_color_manual(values = c('mediumseagreen', 'orange', 'red'))
+```
+
+Plotting a bar chart of the players' total time spent on each hero can give us another point of view on the hero usage.
+Figure 3 is similar to Figure 2 in many ways. Mercy is still played more than any other hero, though the gap is not as
+drastic as in Figure 2. Defense heroes remain to be the least popular class of heroes. 
+
+Another interesting we noticed in Figure 2 and Figure 3 is the usage of newly released heroes. The initial Overwatch
+release has a roster of 21 heroes. Along the course of the following year, 5 new heroes were added to the game one by
+one. Only the first new hero Ana is played by a fair share of players according to Figure 2 and Figure 3. Whereas
+the other four: Doomfist, Sombra, Orisa and Moira, are some of the least popular choices in competitive games. Also note
+that Moira was only released last month, so her popularity is likely to decline in the very near future as right now
+her usage is still largely due to everyone wanting to try the new hero. This is a clear sign that the developers should
+be more careful when they tweak the design of new heroes.
+
+```{r, fig.cap = 'Distribution of Time Played by Hero', fig.height = 4, fig.width = 6}
+## bar chart of total time played
+p = heroUsage %>% group_by(hero) %>%
+  summarise(class = unique(class), `Time Played` = sum(`Time Played`, na.rm = T), difficulty = unique(difficulty)) %>%
+  ggplot(aes(class, `Time Played`, group = hero, fill = class)) +
+  geom_col(position = 'dodge', color = 'white') +
+  geom_text(aes(label = hero, color = difficulty), position = position_dodge(0.9),
+            angle = 90, size = 1.8, hjust = -0.2, show.legend = FALSE) +
+  ylim(c(0, 1e8)) + ylab('Time Played (seconds)')
+plot_custom(p) + scale_color_manual(values = c('mediumseagreen', 'orange', 'red'))
+```
+
+Another aspect of hero usage is to look at how players' attribute their total play time with each hero. For example, some
+players are good at switching heroes mid match to counter their opponents, while other players can only play one or two heroes
+good enough to compete in competitive games. Earlier this year, one issue that sparked a lot of debates is the rise in popularity
+of Mercy mains. Many players argued that Mercy has the lowest skill ceiling and can consistently contribute to the team, making
+her the go-to choice for players that lack the skill to play other heroes but want to gain more SR. From Figure 2, we can already
+see that Mercy mains indeed take up a large portion of the entire player base. Now we want to investigate the characteristics
+of their hero usage and their SR standings. Below we plot the histograms
+of percentage of time spent on main hero for Mercy mains and non Mercy mains. We also plot the histograms of their SR to see if
+Mercy mains still tend to get high SR.
+
+```{r, fig.height = 6, fig.width = 9, fig.cap = 'Comparison between Mercy mains and other players'}
+mercyComp = heroUsage %>% filter(rank == 1) %>%
+  mutate(Mercy = ifelse(hero == 'MERCY', 'Mercy mains', 'Non Mercy mains'))
+p1 = mercyComp %>% ggplot(aes(usePercentage)) +
+  geom_histogram(aes(y = ..density..), color = 'white', fill = 'lightblue') +
+  geom_line(stat = 'density', color = 'magenta') + facet_wrap(~ Mercy, nrow = 2) +
+  xlab('Percentage of time spent on main hero')
+p2 = mercyComp %>% ggplot(aes(SR)) +
+  geom_histogram(aes(y = ..density..), color = 'white', fill = 'lightblue') +
+  geom_line(stat = 'density', color = 'magenta') + facet_wrap(~ Mercy, nrow = 2)
+grid.arrange(plot_custom(p1), plot_custom(p2), ncol = 2)
+```
+
+From Figure 4, we can see that a large portion of Mercy mains indeed spend majority of their time playing only Mercy, as compared
+other players. The mode is around 25% in both histograms, but the peak region of non Mercy mains is much higher than that of Mercy
+mains. Only less than one fourth of non Mercy mains spend over half their time playing their main heroes, while in the case of
+Mercy mains, nearly half of them use Mercy more than all other heroes combined. As for the distribution of SR, not much difference
+can be spotted in the two histograms on the right. This suggests that the current SR system doesn't unfairly favor Mercy mains
+like it used to. 
+
+## Compare game stats among players in different levels.
+
+Now we will try to figure out what statistics often distinguish highly skilled players from normal players. For this analysis, we
+create a data frame `combat` by joining the tables `dfMerged$Game`, `dfPlayer`, and `dfMerged$Combat`. The dataset is filtered
+to only include overall statistics of all heroes combined. We also set the threshold for minimum games played as 50 games, so
+that the plots are not stretched by players that had a very lucky/unlucky streak. 
+
+Since there are too many statistics in our dataset, here we only show a few statistics that display intereting pattern
+across different SR levels. The results are shown as scatter plots in Figure 5. The lines in the scatter plots are produced using
+`geom_smooth` function with method of smoothing set as GAM. 
+
+```{r, fig.height = 9, fig.width = 9, fig.cap = 'The relationship between various statistics and SR'}
+combat = dfMerged$Game %>% filter(hero == 'ALL HEROES', num(`Games Played`) > 50) %>%
+  left_join(dfPlayer, by = c('Player' = 'btags')) %>% 
+  mutate(`Win Percentage` = num(`Games Won`) / num(`Games Played`) * 100) %>%
+  inner_join(dfMerged$Combat %>% filter(hero == 'ALL HEROES'), by = c('Player'))
+
+ggdat = bind_rows(
+  combat %>% mutate(value = `Win Percentage`, key = 'Win Percentage'),
+  combat %>% mutate(value = `Fire Time` / `Time Played` * 100, key = '% of Time on Fire'),
+  combat %>% mutate(value = `Objective Time` / `Time Played` * 100, key = '% of Time on Objective'),
+  combat %>% mutate(value = num(Eliminations) / num(Deaths), key = 'Kill/Death Ratio') %>% filter(class != 'Support'),
+  combat %>% mutate(value = num(`Melee Final Blows`) / num(`Games Played`), key = 'Melee Kills per Game') %>% filter(class != 'Support'),
+  combat %>% mutate(value = num(`All Damage Done`) / num(`Games Played`), key = 'Damage Done per Game') %>% filter(class != 'Support')
+)
+ggdat = ggdat %>% mutate(key = factor(key, levels = unique(key)))
+
+p = ggplot(ggdat, aes(SR, value, color = Tier)) + geom_point(size = 0.5, alpha = 0.5) +
+  geom_smooth(color = 'black', size = 0.7) + ylab(NULL) +
+  facet_wrap(~ key, nrow = 3, ncol = 2, scales = 'free_y')
+plot_custom(p, legend.pos = 'bottom')
+```
+
+Based on Figure 5, we can make the following observations:
+
++ With the exception of "Percentage of Time on Objective", all other statistics generally increase as the SR increases.
+
++ The slopes of the smoothed lines are usually the steepest when the SR reaches the Grandmaster tier. The reason might be
+that, as the highest tier, Grandmaster players often get matched in a game with players not exceeding their skill level. So
+they can get decent statistics more consistently. Whereas Diamond or Master players constantly get placed in games with
+higher ranking players.
+
++ Many of these plots have "dents" in the region between 3000 and 4000 SR. This might be caused by the SR decay, which can
+misrepresent the relationship between game stats and SR as the SR is lower than the player's actual skill level.
+
++ The general trend of the percentage of time on objective first increases at lower ranks, then decreases at higher ranks.
+A probable interpretation is that, at lower ranks, as a players' experience grows, they tend to be more aware of the objective.
+While at higher levels, players are getting better at better at playing around the objective so the fights usually happens
+outside the objective. Therefore it usually cost them not too much time contesting on the point. 
+
+From the scatter plots, we can see that the relationship between these statistics and SR is interpreble based on common sense
+and basic understanding of the game. There is nothing abnormal happening in these plots that makes one question the validity
+of the current SR system.
+
+## Do meta heroes perform better than others?
+
+Since it's a team based game, "What is the current meta" is a perpetually discussed question among Overwatch players. "Meta"
+means certain team compositions and strategies that have a better chance of winning the game. Meta is usually considered to
+only apply to highly skilled players. So in this section, we restrict our data to only include players with an SR higher than
+3500. 
+
+Figure 6 is a bar chart of the total time played of each hero at higher ranks. It looks similar to Figure 3, but it shows that many medium
+or hard heroes receive more utilization from skilled players. Among offense heroes, hard hero Genji takes Soldier-76's place as the most used
+hero. Medium heroes Tracer and Mccree almost catch up with Soldier-76. While easy heroes Pharah and Reaper are used much less
+compared to in Figure 3. Similarly, in the case of tank heroes, easy hero Reinhardt is surpassed by medium hero Winston and
+hard hero Zarya. Mercy still takes the spot of the most played hero even in high SR region, as her unique ability to resurrect
+teammates almost guarantees her a place in every team composition.
+
+```{r, fig.cap = 'Hero usage at higher ranks', fig.height = 4, fig.width = 6}
+ggdat = heroUsage %>% filter(SR >= 3500) %>% group_by(hero) %>%
+  summarise(class = unique(class), `Time Played` = sum(`Time Played`, na.rm = T), difficulty = unique(difficulty))
+p = ggplot(ggdat, aes(class, `Time Played`, group = hero, fill = class)) +
+  geom_col(position = 'dodge', color = 'white') +
+  geom_text(aes(label = hero, color = difficulty), position = position_dodge(0.9),
+            angle = 90, size = 1.8, hjust = -0.2, show.legend = FALSE) +
+  ylim(c(0, 12e6)) + geom_hline(yintercept = 3000000, color = 'grey40', linetype = 'dotted') +
+  ylab('Time Played (seconds)')
+plot_custom(p) + scale_color_manual(values = c('mediumseagreen', 'orange', 'red'))
+```
+
+Note that half of the roster are used much more often than the other half. This distinction is marked in Figure 6 by grey dotted line.
+It appears that the heroes above this line can be regarded as heroes in the current meta, while the others are less favorable choices
+in current season. Now let's see if the "meta" heroes truly out-perform the other heroes. Figure 7 is a lollipop chart of all heroes'
+win rates. The win rates are calculated as the weighted average of all players' percentage of games won (weighted by the number of games 
+each player spent playing the hero). The size of dots are scaled to be proportional to the hero's total usage in seconds. 
+
+According to Figure 7, 10 out of 13 of the top half of the roster have a win rate higher than 50%, while for the other half, the ratio
+is 7 out of 13. The top 5 most used heroes especially have very decent win rate over most other heroes. However, this doesn't mean
+the "off-meta" heroes are prone to lose. Some of the 2ess-picked heroes like Hanzo Doomfist and Reaper indeed have low win rates,
+but heroes like Orisa, Symmetra, Mei, Torbjorn and Sombra are some of the least played heroes but their win rates
+are comparable to the top 5 meta heroes. This could be the case where the players who use rarely-picked heroes are usually highly skilled
+and confident in their capabilities of playing those heroes. So those heroes have high win rates but are not always powerful in any player's
+hands. Nevertheless, this is further proof that "meta" should be taken more as guidelines and suggestions rather than universal rules. 
+
+```{r, fig.height = 5.5, fig.width = 7, fig.cap = 'Win rate of heroes sorted by total usage'}
+proWinPerc = dfMerged$Game %>%
+  mutate(hero = hero %>% str_replace('TORBJÖRN', 'TORBJORN') %>%
+           str_replace("SOLDIER: 76", 'SOLDIER-76') %>%
+           str_replace('D.VA', 'DVA') %>%
+           str_replace("LÚCIO", 'LUCIO')) %>%
+  inner_join(dfPlayer %>% filter(SR >= 3500), by = c('Player' = 'btags')) %>%
+  replace_na(list(`Games Played` = 0, `Games Won` = 0)) %>% filter(`Games Played` != 0) %>%
+  mutate(`Win Percentage` = num(`Games Won`) / num(`Games Played`) * 100)
+
+winRate = proWinPerc %>% group_by(hero) %>%
+  summarise(`Games Played` = sum(num(`Games Played`)), `Games Won` = sum(num(`Games Won`))) %>%
+            ## `Win Percentage` = mean(`Win Percentage`)) %>%
+  mutate(`Win Percentage` = `Games Won` / `Games Played` * 100) %>%
+  inner_join(ggdat %>% select(-difficulty), by = 'hero') %>% arrange(`Time Played`)
+winRate = winRate %>% mutate(hero = factor(hero, levels = hero),
+                             class = factor(class, levels = c('Offense', 'Defense', 'Tank', 'Support')))
+p = ggplot(winRate, aes(hero, `Win Percentage`, color = class)) +
+  geom_segment(aes(y = 39, x = hero, yend = `Win Percentage`, xend = hero), color = "grey78") + 
+  geom_point(aes(size = `Time Played`)) + coord_flip() + guides(size = FALSE) + xlab('Hero')
+plot_custom(p)
+```
+
+## Use PCA and clustering to categorize players with regard to hero usage
+
+We have mentioned that there are generally two types of players: the ones that mostly use one or two heroes, and the ones
+that can utilize multiple heroes decently well. Here we will use unsupervised learning tools like PCA and K-means clustering
+to categorize players based on their hero usage. For this analysis, we reshape the `heroUsage` table into a data frame `heroUsage.wide` 
+that has 26 numeric variables. The first variable corresponds to the percentage of time each player spent on his most played hero, and
+the second corresponds to the second most played hero, so on and so forth. The transformation of data frame can be done using
+the `spread` function in `tidyr` package. 
+
+First we will perform PCA on `heroUsage.wide`. Figure 8 shows the the percentage of explained variance when the first few PCs are
+included. The first PC already covers nearly 85% of the total variance. Adding the second PC will give us a coverage of 95%. We
+continue to use the first two principal components in our clustering analysis. As discussed earlier, a straightforward approach
+would be to divide all players into two categories. Now we use K-means algorithm to separate our data into two clusters.
+
+```{r, fig.cap = 'Explained variance plot', fig.height = 4, fig.width = 5.5}
+library(cluster)
+heroUsage.wide = heroUsage %>% select(Player, rank, usePercentage) %>%
+  right_join(data.frame(Player = rep(unique(heroUsage$Player), each = 26),
+                        rank = rep(1:26, length(unique(heroUsage$Player)))),
+             by = c('Player', 'rank')) %>%
+  replace_na(list(usePercentage = 0)) %>%
+  spread(key = rank, value = usePercentage) %>% ungroup()
+stats = heroUsage.wide[, -1]
+## stats = scale(stats)
+
+## PCA
+pca = princomp(stats)
+explainedVar = cumsum(pca$sdev^2) / sum(pca$sdev^2)
+p = ggplot(data = data.frame(), aes(1:10, explainedVar[1:10])) +
+  geom_line(color = '#1E90FF') + geom_point(color = '#1E90FF') +
+  xlab('Number of Principal Components') + ylab('% of Explained Variance') +
+  scale_x_continuous(breaks = c(1, 4, 7, 10)) 
+plot_custom(p)
+```
+
+As seen in silhouette plot (Figure 9), the sihouette coefficients of the two clusters are 0.61 and 0.46. And the average silhouette
+width is 0.57. The values are not very high but they still indicate a reasonable clustering result. It is also possible to do a
+clustering with 3 or 4 clusters, or use more principal components or no PCA at all. But based on some experimenting behind the scenes,
+using 2 PCs with 2 clusters gives a better and more interpreble result. 
+
+Figure 10 shows the scatter plot of the first two PC scores of all players. The clustering border is almost solely determined by
+the value of the first principal component. The loadings of the first PC suggest that it is a good indicator how much time the player
+spent on his main hero. However, the two clusters aren't clearly distinguishable based on the pattern of Figure 10. 
+
+```{r, fig.cap = 'Silhouette plot of the clustering result', fig.width = 7, fig.height = 4}
+## p2 = ggplot(as.data.frame(pca$scores), aes(Comp.1, Comp.2)) + geom_point()
+## plot_custom(p2)
+
+pcaScores = pca$scores[, 1:2]
+dist.pca = dist(pcaScores)
+fit = kmeans(pcaScores, 2)
+sil = silhouette(fit$cluster, dist.pca)
+plot(sil)
+```
+
+
+```{r, fig.cap = 'Scatter plot of PC scores', fig.width = 5.5, fig.height = 4}
+p = pcaScores %>% data.frame() %>% mutate(cluster = fit$cluster %>% factor()) %>%
+  ggplot(aes(Comp.1, Comp.2, color = cluster)) + geom_point(size = 0.5, alpha = 0.5)
+plot_custom(p)
+```
