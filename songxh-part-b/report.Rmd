@@ -419,7 +419,9 @@ width is 0.57. The values are not very high but they still indicate a reasonable
 clustering with 3 or 4 clusters, or use more principal components or no PCA at all. But based on some experimenting behind the scenes,
 using 2 PCs with 2 clusters gives a better and more interpreble result. 
 
-
+Figure 10 shows the scatter plot of the first two PC scores of all players. The clustering border is almost solely determined by
+the value of the first principal component. The loadings of the first PC suggest that it is a good indicator how much time the player
+spent on his main hero. However, the two clusters aren't clearly distinguishable based on the pattern of Figure 10. 
 
 ```{r, fig.cap = 'Silhouette plot of the clustering result', fig.width = 7, fig.height = 4}
 ## p2 = ggplot(as.data.frame(pca$scores), aes(Comp.1, Comp.2)) + geom_point()
